@@ -5,6 +5,9 @@ functions = "netlify/functions"
 
 [build.environment]
 NODE_VERSION = "22"
+# The storefront WhatsApp number is public contact info shown to every customer,
+# so it must not be treated as a secret by secrets scanning.
+SECRETS_SCAN_OMIT_KEYS = "AUREL_WHATSAPP_NUMBER"
 
 [functions]
 node_bundler = "esbuild"
