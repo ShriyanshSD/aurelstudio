@@ -24,7 +24,7 @@ import { handleNativeCors } from '../native-origin.js'
 
 type ApiRequest = IncomingMessage & {
   body?: unknown
-  query?: Record<string, string | string[]>
+  query?: Record<string, unknown>
 }
 type ApiHandler = (req: ApiRequest, res: ServerResponse) => void | Promise<void>
 
@@ -53,7 +53,11 @@ const routes: Record<string, ApiHandler> = {
 export default function handler(req: ApiRequest, res: ServerResponse) {
   if (handleNativeCors(req, res)) return
   const rewrittenRoute = req.query?.route
-  const requestedRoute = Array.isArray(rewrittenRoute) ? rewrittenRoute[0] : rewrittenRoute
+  const requestedRoute = typeof rewrittenRoute === 'string'
+    ? rewrittenRoute
+    : Array.isArray(rewrittenRoute) && typeof rewrittenRoute[0] === 'string'
+      ? rewrittenRoute[0]
+      : undefined
   const pathname = requestedRoute
     ?? new URL(req.url ?? '/', 'http://localhost').searchParams.get('route')
     ?? new URL(req.url ?? '/', 'http://localhost').pathname

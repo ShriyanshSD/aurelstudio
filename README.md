@@ -171,6 +171,16 @@ The dashboard adds API routes to the existing shared `api/index.ts` function, so
 6. In Supabase Authentication → URL Configuration, set the Site URL to the production origin and add the production origin, plus any preview origins you use, to the allowed redirect URLs. Confirm email signup is enabled and the confirmation email template uses `{{ .ConfirmationURL }}`.
 7. In Vercel, ensure the production branch is the intended branch (typically `main`). Pushing to that branch triggers a deployment when Git integration is enabled. After adding or changing environment variables, redeploy so the new serverless functions receive them.
 
+## Deploying to Netlify
+
+`netlify.toml` configures the Vite build, SPA routes, security headers, and a shared Netlify Function adapter for the existing `/api/*` handlers.
+
+1. Apply the Supabase schema and migrations described in [Deploying to Vercel](#deploying-to-vercel) before enabling the related features.
+2. Import this repository into Netlify with the repository root as the base directory. The checked-in `netlify.toml` sets the build command to `npm run build`, the publish directory to `dist`, and the Functions directory to `netlify/functions`.
+3. Add the server-side variables from the Vercel environment variable list above in **Site configuration → Environment variables**. Set `APP_URL` to the exact production site origin. Add optional integrations such as Gmail and Firebase only if they are enabled. Never use a `VITE_` prefix for private values.
+4. In Supabase Authentication → URL Configuration, set the Site URL to the Netlify production origin and add it, plus any preview origins used, to the allowed redirect URLs.
+5. Deploy, then verify the storefront, customer signup/login, `/api/catalog`, and `/admin/login`. After changing environment variables, trigger a new deploy so both the build and Functions receive them.
+
 ## UPI Checkout Testing
 
 1. Apply `supabase/schema.sql`, the owner dashboard and owner-operations migrations, then `202610310001_upi_checkout.sql`.
