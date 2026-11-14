@@ -1,0 +1,71 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/payment/config", "destination": "/api/index?route=/api/payment/config" },
+    { "source": "/api/catalog", "destination": "/api/index?route=/api/catalog" },
+    { "source": "/api/admin/native/login", "destination": "/api/index?route=/api/admin/native/login" },
+    { "source": "/api/admin/native/refresh", "destination": "/api/index?route=/api/admin/native/refresh" },
+    { "source": "/api/admin/native/logout", "destination": "/api/index?route=/api/admin/native/logout" },
+    { "source": "/api/admin/:path*", "destination": "/api/index?route=/api/admin/:path*" },
+    { "source": "/api/chat", "destination": "/api/index?route=/api/chat" },
+    { "source": "/api/chat/history", "destination": "/api/index?route=/api/chat/history" },
+    { "source": "/api/locations/states", "destination": "/api/index?route=/api/locations/states" },
+    { "source": "/api/locations/cities", "destination": "/api/index?route=/api/locations/cities" },
+    { "source": "/api/auth/signup", "destination": "/api/index?route=/api/auth/signup" },
+    { "source": "/api/auth/verify", "destination": "/api/index?route=/api/auth/verify" },
+    { "source": "/api/auth/resend-verification", "destination": "/api/index?route=/api/auth/resend-verification" },
+    { "source": "/api/auth/login", "destination": "/api/index?route=/api/auth/login" },
+    { "source": "/api/auth/me", "destination": "/api/index?route=/api/auth/me" },
+    { "source": "/api/auth/profile", "destination": "/api/index?route=/api/auth/profile" },
+    { "source": "/api/auth/change-email", "destination": "/api/index?route=/api/auth/change-email" },
+    { "source": "/api/auth/orders", "destination": "/api/index?route=/api/auth/orders" },
+    { "source": "/api/auth/magazine-uploads", "destination": "/api/index?route=/api/auth/magazine-uploads" },
+    { "source": "/api/auth/reviews", "destination": "/api/index?route=/api/auth/reviews" },
+    { "source": "/api/auth/change-password", "destination": "/api/index?route=/api/auth/change-password" },
+    { "source": "/api/auth/delete-account", "destination": "/api/index?route=/api/auth/delete-account" },
+    { "source": "/api/auth/confirm-email-change", "destination": "/api/index?route=/api/auth/confirm-email-change" },
+    { "source": "/api/auth/logout", "destination": "/api/index?route=/api/auth/logout" },
+    { "source": "/admin", "destination": "/index.html" },
+    { "source": "/admin/:path*", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'report-sample'; require-trusted-types-for 'script'; trusted-types 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://*.supabase.co; frame-src 'self'; upgrade-insecure-requests"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=300"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "0"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), geolocation=(), microphone=()"
+        }
+      ]
+    }
+  ]
+}

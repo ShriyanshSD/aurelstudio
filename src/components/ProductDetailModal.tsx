@@ -1,0 +1,459 @@
+import React, { useEffect, useState } from 'react'
+import { motion, AnimatePresence, MotionConfig } from 'motion/react'
+import { X, Star, Heart, Check, Minus, Plus, ShoppingBag, Sparkles, ArrowLeft, ShieldCheck, Truck } from 'lucide-react'
+import { Product, FinishType, CartItem, StoreReview } from '../types'
+
+interface ProductDetailModalProps {
+  product: Product | null
+  isDarkMode: boolean
+  onClose: () => void
+  onAddToCart: (item: CartItem) => boolean
+  isWishlisted: boolean
+  onToggleWishlist: (productId: string, e: React.MouseEvent) => void
+  isAuthenticated: boolean
+  reviews: StoreReview[]
+}
+
+export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
+  product,
+  isDarkMode,
+  onClose,
+  onAddToCart,
+  isWishlisted,
+  onToggleWishlist,
+  isAuthenticated,
+  reviews
+}) => {
+  const [quantity, setQuantity] = useState(1)
+  const [selectedFinish, setSelectedFinish] = useState<FinishType>(
+    product?.availableFinishes?.[0] ?? 'matte'
+  )
+  const [selectedVariantId, setSelectedVariantId] = useState(product?.variants?.[0]?.id ?? '')
+  const [recipientName, setRecipientName] = useState('')
+  const [customMessage, setCustomMessage] = useState('')
+  const [isAddedFeedback, setIsAddedFeedback] = useState(false)
+  const [reviewFormOpen, setReviewFormOpen] = useState(false)
+  const [reviewerName, setReviewerName] = useState('')
+  const [reviewRating, setReviewRating] = useState(5)
+  const [reviewBody, setReviewBody] = useState('')
+  const [reviewSubmitting, setReviewSubmitting] = useState(false)
+  const [reviewError, setReviewError] = useState('')
+  const [reviewSubmitted, setReviewSubmitted] = useState(false)
+  useEffect(() => {
+    setQuantity(1)
+    setSelectedVariantId(product?.variants?.[0]?.id ?? '')
+    setSelectedFinish(product?.availableFinishes?.[0] ?? 'matte')
+    setReviewFormOpen(false)
+    setReviewSubmitted(false)
+    setReviewError('')
+    setReviewerName('')
+    setReviewRating(5)
+    setReviewBody('')
+  }, [product?.id])
+
+  if (!product) return null
+
+  const selectedVariant = product.variants?.find(variant => variant.id === selectedVariantId)
+  const unitPrice = selectedVariant?.price ?? product.price
+  const availableStock = selectedVariant ? selectedVariant.stockQuantity : product.stockQuantity
+  const availability = availableStock === 0
+    ? 'Out of stock'
+    : typeof availableStock === 'number' && availableStock <= (product.lowStockThreshold ?? 5)
+      ? 'Few left'
+      : 'In stock'
+  const productReviews = reviews.filter(review => review.productId === product.id)
+
+  const livePreviewHeading = recipientName.trim()
+    ? `${recipientName.toUpperCase()}’S EDITION`
+    : 'SPECIAL COMMEMORATIVE EDITION'
+
+  const handleAdd = () => {
+    const cartItem: CartItem = {
+      cartId: `${product.id}_${Date.now()}`,
+      productId: product.id,
+      name: product.name,
+      price: unitPrice,
+      quantity,
+      imageUrl: product.imageUrl,
+      variantId: selectedVariant?.id,
+      variantName: selectedVariant?.name,
+      finish: product.availableFinishes?.length ? selectedFinish : undefined,
+      recipientName: recipientName.trim() || undefined,
+      customMessage: customMessage.trim() || undefined
+    }
+
+    if (!onAddToCart(cartItem)) return
+    setIsAddedFeedback(true)
+    setTimeout(() => {
+      setIsAddedFeedback(false)
+      onClose()
+    }, 900)
+  }
+
+  const submitReview = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!product || reviewSubmitting) return
+    setReviewSubmitting(true)
+    setReviewError('')
+    try {
+      const response = await fetch('/api/auth/reviews', {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: product.id,
+          reviewerName: reviewerName.trim(),
+          rating: reviewRating,
+          title: '',
+          body: reviewBody.trim()
+        })
+      })
+      const responseText = await response.text()
+      let payload: { success?: boolean; error?: string }
+      try {
+        payload = JSON.parse(responseText) as { success?: boolean; error?: string }
+      } catch {
+        throw new Error(`Review submission returned an invalid response (HTTP ${response.status}).`)
+      }
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Unable to submit your review.')
+      setReviewSubmitted(true)
+      setReviewFormOpen(false)
+    } catch (submitError) {
+      setReviewError(submitError instanceof Error ? submitError.message : 'Unable to submit your review.')
+    } finally {
+      setReviewSubmitting(false)
+    }
+  }
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+        className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-6"
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 15 }}
+          transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+          className={`relative w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden border my-6 ${
+            isDarkMode 
+              ? 'bg-[#1C1817] text-[#F3EBE6] border-[#362A27]' 
+              : 'bg-[#FAF6F2] text-[#2C2422] border-[#E8D4CB]'
+          }`}
+        >
+          {/* Top Bar with Back and Close */}
+          <div className="p-5 sm:p-6 border-b border-black/5 dark:border-white/5 flex items-center justify-between">
+            <button
+              onClick={onClose}
+              className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-[#B36D6D] hover:underline"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Collection</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              aria-label="Close product view"
+              className={`p-2 rounded-full transition-colors ${
+                isDarkMode ? 'hover:bg-[#2A2321] text-[#E0D2CB]' : 'hover:bg-[#EFE2DC] text-[#4A3B37]'
+              }`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* 2-Column Product Content */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-8 p-6 sm:p-10 max-h-[82vh] overflow-y-auto">
+            
+            {/* Left: Product Image / Live Preview */}
+            <div className="md:col-span-6 space-y-4">
+              <div className="relative aspect-[4/3] sm:aspect-[1/1] rounded-2xl overflow-hidden shadow-lg bg-[#F5ECE8] group">
+                <MotionConfig reducedMotion="never">
+                <motion.img
+                  src={product.imageUrl}
+                  alt={product.name}
+                  referrerPolicy="no-referrer"
+                  loading="lazy"
+                  decoding="async"
+                  whileHover={{ scale: 1.045 }}
+                  transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+                  className="h-full w-full object-cover"
+                />
+                </MotionConfig>
+
+                {/* Live Personalization Overlay for Magazines */}
+                {product.category === 'magazines' && recipientName.trim() && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="absolute bottom-4 left-4 right-4 p-3 rounded-xl bg-white/90 dark:bg-[#1C1615]/90 backdrop-blur-md shadow-lg border border-white/20 text-center"
+                  >
+                    <span className="text-[10px] uppercase tracking-widest text-[#B36D6D] font-bold block">
+                      Live Masthead Preview
+                    </span>
+                    <span className="font-serif-title text-sm font-semibold tracking-wide text-[#28211F] dark:text-[#F3EBE6]">
+                      {livePreviewHeading}
+                    </span>
+                  </motion.div>
+                )}
+
+                {/* Wishlist Button */}
+                {isAuthenticated && (
+                  <button
+                    onClick={(e) => onToggleWishlist(product.id, e)}
+                    aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                    aria-pressed={isWishlisted}
+                    className="absolute right-4 top-4 rounded-full bg-white/85 p-2.5 shadow-md backdrop-blur-md dark:bg-[#1D1716]/85"
+                  >
+                    <Heart
+                      className={`h-4 w-4 transition-colors ${
+                        isWishlisted ? 'fill-[#B36D6D] text-[#B36D6D]' : 'text-[#8E7A74]'
+                      }`}
+                    />
+                  </button>
+                )}
+              </div>
+
+              {/* Trust Badges */}
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="p-3 rounded-xl bg-black/5 dark:bg-white/5 flex items-center gap-2.5">
+                  <Truck className="w-4 h-4 text-[#B36D6D] shrink-0" />
+                  <span className="text-[11px] text-[#786660] dark:text-[#B9A9A3]">
+                    Carefully packaged with silk ribbon
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-black/5 dark:bg-white/5 flex items-center gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-[#B36D6D] shrink-0" />
+                  <span className="text-[11px] text-[#786660] dark:text-[#B9A9A3]">
+                    100% Quality guarantee
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Purchase and Customization Module */}
+            <div className="md:col-span-6 space-y-6">
+              <div>
+                <span className="text-[10px] uppercase tracking-widest text-[#B36D6D] font-semibold">
+                  {product.category}
+                </span>
+                <h2 className="font-serif-title text-2xl sm:text-3xl font-normal tracking-wide mt-1">
+                  {product.name}
+                </h2>
+
+                {/* Rating and Price */}
+                <div className="flex items-center justify-between mt-3 pb-4 border-b border-black/5 dark:border-white/5">
+                  <div className="flex items-center gap-2 text-xs">
+                    {product.reviewsCount > 0 ? <>
+                    <div className="flex items-center text-[#B36D6D]">
+                      <Star className="w-4 h-4 fill-[#B36D6D]" />
+                      <span className="ml-1 font-semibold">{product.rating.toFixed(1)}</span>
+                    </div>
+                    <span className="text-[#8E7A74] dark:text-[#A89791]">
+                      ({product.reviewsCount} {product.reviewsCount === 1 ? 'rating' : 'ratings'})
+                    </span>
+                    </> : <span className="text-[#8E7A74] dark:text-[#A89791]">No ratings yet</span>}
+                  </div>
+
+                  <span className="font-serif-title text-2xl font-bold text-[#B36D6D] tabular-nums">
+                    ₹{unitPrice.toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+              </div>
+
+              {product.variants && product.variants.length > 0 && (
+                <div>
+                  <label htmlFor="product-variant" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[#8B7771] dark:text-[#BCAAA4]">Choose an option</label>
+                  <select id="product-variant" value={selectedVariantId} onChange={event => { setSelectedVariantId(event.target.value); setQuantity(1) }} className={`w-full rounded-xl border px-3.5 py-3 text-sm ${isDarkMode ? 'border-[#382C29] bg-[#221B1A] text-[#F3EBE6]' : 'border-[#DFC6BD] bg-white text-[#2C2422]'}`}>
+                    {product.variants.map(variant => <option key={variant.id} value={variant.id}>{variant.name} · ₹{variant.price.toLocaleString('en-IN')}{variant.stockQuantity === 0 ? ' · Out of stock' : ''}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Finish Options (if Magazine) */}
+              {product.availableFinishes?.length ? (
+                <div>
+                  <label className="block text-xs font-semibold tracking-wider uppercase text-[#8B7771] dark:text-[#BCAAA4] mb-2">
+                    Choose Finish
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {product.availableFinishes.map((finish) => (
+                      <button
+                        key={finish}
+                        type="button"
+                        onClick={() => setSelectedFinish(finish)}
+                        className={`p-3 rounded-xl border text-xs font-medium uppercase tracking-wider transition-all flex items-center justify-between ${
+                          selectedFinish === finish
+                            ? 'border-[#B36D6D] bg-[#B36D6D]/10 text-[#8C4F4A] dark:text-[#F3C2BA]'
+                            : isDarkMode
+                              ? 'border-[#382C29] bg-[#221B1A] text-[#BCAAA4]'
+                              : 'border-[#DFC6BD] bg-[#FAF4F0] text-[#55433D]'
+                        }`}
+                      >
+                        <span>{finish}</span>
+                        {selectedFinish === finish && <Check className="w-3.5 h-3.5 text-[#B36D6D]" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Personalization Inputs */}
+              {product.isCustomizable && (
+                <div className="space-y-3.5 p-4 rounded-2xl bg-black/5 dark:bg-white/5">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase text-[#B36D6D]">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Make It Personal</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-wider text-[#8A7771] mb-1">
+                      Recipient Name
+                    </label>
+                    <input
+                      type="text"
+                      value={recipientName}
+                      onChange={(e) => setRecipientName(e.target.value)}
+                      placeholder="Name to appear on gift / magazine cover"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs transition-colors focus:outline-hidden focus:border-[#B36D6D] ${
+                        isDarkMode
+                          ? 'bg-[#181413] border-[#3F302D] text-[#EDE0DA]'
+                          : 'bg-[#FFFFFF] border-[#DEC5BB] text-[#2C2321]'
+                      }`}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-wider text-[#8A7771] mb-1">
+                      Your Message or Dedication
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={customMessage}
+                      onChange={(e) => setCustomMessage(e.target.value)}
+                      placeholder="Add a heartfelt memory note to include inside"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs transition-colors focus:outline-hidden focus:border-[#B36D6D] resize-none ${
+                        isDarkMode
+                          ? 'bg-[#181413] border-[#3F302D] text-[#EDE0DA]'
+                          : 'bg-[#FFFFFF] border-[#DEC5BB] text-[#2C2321]'
+                      }`}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Quantity Stepper & Add to Bag */}
+              <div className="flex items-center gap-4 border-b border-black/5 pb-5 dark:border-white/10">
+                <div className={`flex items-center rounded-full border px-2 py-1 ${
+                  isDarkMode ? 'border-[#3D302D] bg-[#221B1A]' : 'border-[#DEC5BB] bg-[#FFFFFF]'
+                }`}>
+                  <button
+                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    className="p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/5"
+                    aria-label="Decrease quantity"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="px-3 text-xs font-semibold tabular-nums">{quantity}</span>
+                  <button
+                    onClick={() => setQuantity(availableStock === null || availableStock === undefined
+                      ? quantity + 1
+                      : Math.min(availableStock, quantity + 1))}
+                    disabled={availableStock === 0 || (availableStock !== null && availableStock !== undefined && quantity >= availableStock)}
+                    className="p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/5"
+                    aria-label="Increase quantity"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <motion.button
+                  disabled={availableStock === 0 || Boolean(product.variants?.length && !selectedVariant)}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleAdd}
+                  className={`flex-1 py-3.5 rounded-full text-xs font-medium tracking-wider uppercase shadow-md transition-all flex items-center justify-center gap-2 ${
+                    isAddedFeedback
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-[#B36D6D] hover:bg-[#9E5B5B] text-white disabled:cursor-not-allowed disabled:bg-[#8d817d]'
+                  }`}
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>
+                    {isAddedFeedback ? 'Added to Bag' : availableStock === 0 ? 'Out of stock' : `Add to Bag · ₹${(unitPrice * quantity).toLocaleString('en-IN')}`}
+                  </span>
+                </motion.button>
+              </div>
+
+              <p className={`rounded-xl border px-3.5 py-3 text-xs ${isDarkMode ? 'border-[#382C29] bg-[#221B1A]' : 'border-[#E8D4CB] bg-white'}`}>
+                <span className="text-[#8E7973] dark:text-[#BCAAA4]">Availability: </span>
+                <span className={`font-semibold ${availability === 'Out of stock' ? 'text-rose-700 dark:text-rose-300' : availability === 'Few left' ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'}`}>{availability}</span>
+              </p>
+
+              <p className="font-sans-body text-xs leading-relaxed text-[#705D57] dark:text-[#BEADA7] sm:text-sm">
+                {product.description}
+              </p>
+
+              {/* Features List */}
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[11px] uppercase tracking-wider font-semibold text-[#8B7771] block">
+                  Crafting Highlights
+                </span>
+                {product.features.map((feat, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-xs text-[#6C5A54] dark:text-[#C4B3AC]">
+                    <Check className="w-3.5 h-3.5 text-[#B36D6D] shrink-0" />
+                    <span>{feat}</span>
+                  </div>
+                ))}
+              </div>
+
+              <section className="space-y-2 border-t border-black/5 pt-4 dark:border-white/10">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-medium">Reviews</h3>
+                  {product.reviewsCount > 0 && <span className="text-xs text-[#8E7973] dark:text-[#BCAAA4]">{product.reviewsCount}</span>}
+                </div>
+                {productReviews.length > 0 && <div className="space-y-3">
+                  {productReviews.slice(0, 3).map(review => <article key={review.id} className="border-t border-black/5 pt-3 first:border-0 first:pt-0 dark:border-white/10">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold">{review.title || review.customerName}</p>
+                      <span className="inline-flex items-center gap-1 text-xs text-[#B36D6D]"><Star className="h-3.5 w-3.5 fill-[#B36D6D]" />{review.rating}/5</span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-[#705D57] dark:text-[#BEADA7]">{review.body}</p>
+                    <p className="mt-1 text-[10px] text-[#8E7973] dark:text-[#A89791]">{review.customerName}</p>
+                  </article>)}
+                </div>}
+                {reviewSubmitted
+                  ? <p role="status" className="text-xs text-emerald-700 dark:text-emerald-300">Thank you. Your review will appear after owner approval.</p>
+                  : <button type="button" onClick={() => { setReviewFormOpen(open => !open); setReviewError('') }} aria-expanded={reviewFormOpen} className="text-xs font-medium text-[#9A6560] underline decoration-[#B36D6D]/40 underline-offset-4 transition-colors hover:text-[#B36D6D] dark:text-[#D7A5A0]">
+                    {reviewFormOpen ? 'Close review form' : 'Leave a review'}
+                  </button>}
+                {reviewError && <p role="alert" className="text-xs text-rose-700 dark:text-rose-300">{reviewError}</p>}
+                {reviewFormOpen && <form onSubmit={event => void submitReview(event)} className={`space-y-3 rounded-xl border p-3 ${isDarkMode ? 'border-[#3C302D] bg-[#1C1817]/60' : 'border-[#EFE3DD] bg-[#FAF6F2]'}`}>
+                  <label className="block text-[10px] font-medium">Name (optional)<input maxLength={80} value={reviewerName} onChange={event => setReviewerName(event.target.value)} className={`mt-1 w-full rounded-lg border px-3 py-2 text-xs ${isDarkMode ? 'border-[#493936] bg-[#241D1B] text-[#F3EBE6]' : 'border-[#E7D5CE] bg-white text-[#2C2422]'}`} /></label>
+                  <div>
+                    <p className="text-[10px] font-medium">Your rating</p>
+                    <div className="mt-1 flex gap-1" role="group" aria-label="Product rating">
+                      {[1, 2, 3, 4, 5].map(rating => <button key={rating} type="button" aria-label={`${rating} stars`} aria-pressed={reviewRating === rating} onClick={() => setReviewRating(rating)} className="rounded p-1 text-[#B36D6D]">
+                        <Star className={`h-5 w-5 ${reviewRating >= rating ? 'fill-[#B36D6D]' : ''}`} />
+                      </button>)}
+                    </div>
+                  </div>
+                  <label className="block text-[10px] font-medium">Review<textarea required minLength={10} maxLength={3000} rows={3} value={reviewBody} onChange={event => setReviewBody(event.target.value)} className={`mt-1 w-full rounded-lg border px-3 py-2 text-xs ${isDarkMode ? 'border-[#493936] bg-[#241D1B] text-[#F3EBE6]' : 'border-[#E7D5CE] bg-white text-[#2C2422]'}`} /></label>
+                  <button type="submit" disabled={reviewSubmitting} className="rounded-lg bg-[#B36D6D] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{reviewSubmitting ? 'Submitting…' : 'Submit review'}</button>
+                </form>}
+              </section>
+
+            </div>
+
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  )
+}

@@ -1,0 +1,1436 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { flushSync } from 'react-dom'
+import { motion, AnimatePresence, MotionConfig } from 'motion/react'
+import { ArrowUp, Sparkles } from 'lucide-react'
+import { Navigation } from './components/Navigation'
+import { Hero } from './components/Hero'
+import type { AuthMode } from './components/AuthModal'
+import { Product, ProductCategory, CartItem, OrderDetails, FinishType, AuthUser, MagazineCustomization, StoreCategory, StoreSettings, StorefrontContent, StoreCollection, StoreReview } from './types'
+import { PRODUCTS } from './data/products'
+import { MAGAZINE_PRICES } from './data/magazinePricing'
+
+const AdminApp = React.lazy(() => import('./AdminApp'))
+const Sidebar = React.lazy(() => import('./components/Sidebar').then(module => ({ default: module.Sidebar })))
+const MomentsSection = React.lazy(() => import('./components/MomentsSection').then(module => ({ default: module.MomentsSection })))
+const CategoryGrid = React.lazy(() => import('./components/CategoryGrid').then(module => ({ default: module.CategoryGrid })))
+const ProductCatalog = React.lazy(() => import('./components/ProductCatalog').then(module => ({ default: module.ProductCatalog })))
+const MagazineShowcase = React.lazy(() => import('./components/MagazineShowcase').then(module => ({ default: module.MagazineShowcase })))
+const CustomGiftBuilder = React.lazy(() => import('./components/CustomGiftBuilder').then(module => ({ default: module.CustomGiftBuilder })))
+const ProductDetailModal = React.lazy(() => import('./components/ProductDetailModal').then(module => ({ default: module.ProductDetailModal })))
+const CartDrawer = React.lazy(() => import('./components/CartDrawer').then(module => ({ default: module.CartDrawer })))
+const WishlistDrawer = React.lazy(() => import('./components/WishlistDrawer').then(module => ({ default: module.WishlistDrawer })))
+const CheckoutModal = React.lazy(() => import('./components/CheckoutModal').then(module => ({ default: module.CheckoutModal })))
+const PaymentPage = React.lazy(() => import('./components/PaymentPage').then(module => ({ default: module.PaymentPage })))
+const AuthModal = React.lazy(() => import('./components/AuthModal').then(module => ({ default: module.AuthModal })))
+const AccountModal = React.lazy(() => import('./components/AccountModal').then(module => ({ default: module.AccountModal })))
+const ChatbotModal = React.lazy(() => import('./components/ChatbotModal').then(module => ({ default: module.ChatbotModal })))
+const StoryAndReviews = React.lazy(() => import('./components/StoryAndReviews').then(module => ({ default: module.StoryAndReviews })))
+const Footer = React.lazy(() => import('./components/Footer').then(module => ({ default: module.Footer })))
+
+const LazyViewport: React.FC<{
+  children: React.ReactNode
+  minHeight: number
+  id?: string
+  forceVisible?: boolean
+}> = ({ children, minHeight, id, forceVisible = false }) => {
+  const [isVisible, setIsVisible] = React.useState(false)
+  const containerRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    if (!('IntersectionObserver' in window)) {
+      setIsVisible(true)
+      return
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        setIsVisible(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '600px 0px' })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div id={id} ref={containerRef} style={{ minHeight }}>
+      {(isVisible || forceVisible) && <React.Suspense fallback={null}>{children}</React.Suspense>}
+    </div>
+  )
+}
+
+const DeferredMount: React.FC<{ active: boolean; children: React.ReactNode }> = ({ active, children }) => {
+  const [hasBeenActivated, setHasBeenActivated] = React.useState(active)
+  React.useEffect(() => {
+    if (active) setHasBeenActivated(true)
+  }, [active])
+  return hasBeenActivated ? <React.Suspense fallback={null}>{children}</React.Suspense> : null
+}
+
+type AppTab = 'home' | 'shop' | 'builder' | 'story' | 'contact'
+
+interface SignupResumeState {
+  activeTab: AppTab
+  activeCategory: ProductCategory
+  wishlist: string[]
+  isDarkMode: boolean
+  scrollY: number
+  resumeCheckout: boolean
+  createdAt: number
+}
+
+const signupResumeStorageKey = 'aurel_signup_resume'
+const savedThemeStorageKey = 'aurel_theme'
+const legacySavedCartStorageKey = 'aurel_cart'
+const getSavedCartStorageKey = (userId: string) => `aurel_cart_${userId}`
+const getWishlistStorageKey = (userId: string) => `aurel_wishlist_${userId}`
+const appTabs = new Set<AppTab>(['home', 'shop', 'builder', 'story', 'contact'])
+const productCategories = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/
+const isCartItem = (value: unknown): value is CartItem => {
+  if (typeof value !== 'object' || value === null) return false
+  const item = value as Partial<CartItem>
+  return typeof item.cartId === 'string'
+    && typeof item.productId === 'string'
+    && typeof item.name === 'string'
+    && typeof item.price === 'number'
+    && Number.isFinite(item.price)
+    && item.price >= 0
+    && typeof item.quantity === 'number'
+    && Number.isInteger(item.quantity)
+    && item.quantity > 0
+    && typeof item.imageUrl === 'string'
+    && ((item.variantId === undefined && item.variantName === undefined)
+      || (typeof item.variantId === 'string' && item.variantId.length > 0
+        && typeof item.variantName === 'string' && item.variantName.length > 0))
+    && (item.finish === undefined || item.finish === 'matte' || item.finish === 'gloss')
+    && (item.recipientName === undefined || typeof item.recipientName === 'string')
+    && (item.customMessage === undefined || typeof item.customMessage === 'string')
+    && (item.customComponents === undefined || (
+      Array.isArray(item.customComponents)
+      && item.customComponents.every(component => typeof component === 'string')
+    ))
+    && (item.customGiftCustomization === undefined || (
+      typeof item.customGiftCustomization === 'object'
+      && item.customGiftCustomization !== null
+      && (item.customGiftCustomization.box === undefined || (
+        typeof item.customGiftCustomization.box.id === 'string'
+        && typeof item.customGiftCustomization.box.name === 'string'
+        && typeof item.customGiftCustomization.box.price === 'number'
+        && typeof item.customGiftCustomization.box.imageUrl === 'string'
+      ))
+      && Array.isArray(item.customGiftCustomization.components)
+      && item.customGiftCustomization.components.every(component => (
+        typeof component.productId === 'string'
+        && typeof component.name === 'string'
+        && typeof component.price === 'number'
+        && Number.isInteger(component.quantity)
+        && component.quantity > 0
+        && (component.magazinePageCount === undefined || component.magazinePageCount === 4 || component.magazinePageCount === 8)
+      ))
+    ))
+    && (item.magazineCustomization === undefined || (
+      typeof item.magazineCustomization.customizationId === 'string'
+      && /^[a-f0-9-]{36}$/i.test(item.magazineCustomization.customizationId)
+      && typeof item.magazineCustomization.recipientName === 'string'
+      && (item.magazineCustomization.printFinish === 'matte' || item.magazineCustomization.printFinish === 'gloss')
+      && typeof item.magazineCustomization.occasion === 'string'
+      && Array.isArray(item.magazineCustomization.photoUploadIds)
+      && item.magazineCustomization.photoUploadIds.every(id => typeof id === 'string' && /^[a-f0-9-]{36}$/i.test(id))
+      && (item.magazineCustomization.pageCount === 4 || item.magazineCustomization.pageCount === 8)
+      && typeof item.magazineCustomization.dedicationMessage === 'string'
+      && (item.magazineCustomization.messageUploadId === undefined
+        || (typeof item.magazineCustomization.messageUploadId === 'string' && /^[a-f0-9-]{36}$/i.test(item.magazineCustomization.messageUploadId)))
+      && typeof item.magazineCustomization.additionalPreferences === 'string'
+    ))
+}
+
+const readSavedTheme = (): boolean | null => {
+  try {
+    const theme = window.localStorage.getItem(savedThemeStorageKey)
+    return theme === 'dark' ? true : theme === 'light' ? false : null
+  } catch (error) {
+    console.error('Unable to restore the saved theme:', error)
+    return null
+  }
+}
+
+const readSavedCart = (userId: string): CartItem[] => {
+  try {
+    const serializedCart = window.localStorage.getItem(getSavedCartStorageKey(userId))
+    if (!serializedCart) return []
+    const savedCart: unknown = JSON.parse(serializedCart)
+    if (!Array.isArray(savedCart)) {
+      console.error('Unable to restore the saved bag: stored data is not a list.')
+      return []
+    }
+    return savedCart.filter(isCartItem)
+  } catch (error) {
+    console.error('Unable to restore the saved bag:', error)
+    return []
+  }
+}
+
+const initialCategories: StoreCategory[] = [...new Set(PRODUCTS.map(product => product.category))]
+  .map(slug => ({ slug, name: slug.split('-').map(word => word[0]?.toUpperCase() + word.slice(1)).join(' ') }))
+const initialStoreSettings: StoreSettings = {
+  storeName: 'AUREL',
+  tagline: 'Made With Love For You',
+  description: 'Curated luxury memory magazines, botanical bouquets, eternal single blossoms, and thoughtful keepsakes.',
+  contactEmail: 'aruelstudio22@gmail.com',
+  phone: '',
+  whatsappNumber: '919999200913',
+  instagramUrl: 'https://www.instagram.com/_.aurelstudio._?psln=YnRvcGt3dTNyM2V3',
+  facebookUrl: '',
+  deliveryNote: 'Pan India Delivery'
+}
+const initialStorefrontContent: StorefrontContent = {
+  heroEyebrow: 'A memory becomes a gift becomes a keepsake',
+  heroTitle: 'Make moments worth keeping.',
+  heroSubtitle: 'Thoughtful gifts, made personal.',
+  heroDescription: 'From custom magazines and beautiful bouquets to curated hampers and thoughtful keepsakes, AUREL helps you turn your favourite moments into something unforgettable.',
+  heroCtaLabel: 'Explore AUREL',
+  secondaryCtaLabel: 'Create a Memory',
+  heroImageUrl: '/hero-image.png',
+  announcement: '',
+  aboutText: 'At AUREL, we believe the best gifts are thought about, personalized, and given with meaning.',
+  deliveryPolicy: '',
+  returnsPolicy: ''
+}
+
+const readSignupResumeState = (): SignupResumeState | null => {
+  try {
+    const serializedState = window.localStorage.getItem(signupResumeStorageKey)
+    if (!serializedState) return null
+    window.localStorage.removeItem(signupResumeStorageKey)
+    const state = JSON.parse(serializedState) as Partial<SignupResumeState>
+    if (
+      typeof state.createdAt !== 'number'
+      || Date.now() - state.createdAt > 24 * 60 * 60 * 1000
+      || typeof state.activeTab !== 'string'
+      || !appTabs.has(state.activeTab as AppTab)
+      || typeof state.activeCategory !== 'string'
+      || !productCategories.test(state.activeCategory)
+      || !Array.isArray(state.wishlist)
+      || typeof state.isDarkMode !== 'boolean'
+      || typeof state.scrollY !== 'number'
+      || typeof state.resumeCheckout !== 'boolean'
+    ) {
+      return null
+    }
+    return state as SignupResumeState
+  } catch (error) {
+    console.error('Unable to restore the page state after signup:', error)
+    return null
+  }
+}
+
+function StorefrontApp() {
+  const [signupResume] = useState(readSignupResumeState)
+  const scrollAnimationRef = useRef<number | null>(null)
+  const originalScrollBehaviorRef = useRef<string | null>(null)
+  // Theme state
+  const [isDarkMode, setIsDarkMode] = useState(signupResume?.isDarkMode ?? readSavedTheme() ?? false)
+
+  // Navigation & View state
+  const [activeTab, setActiveTab] = useState<AppTab>(signupResume?.activeTab ?? 'home')
+  const [activeCategory, setActiveCategory] = useState<ProductCategory>(signupResume?.activeCategory ?? 'all')
+  const [magazineScrollRequest, setMagazineScrollRequest] = useState(0)
+  const [catalogProducts, setCatalogProducts] = useState<Product[]>(PRODUCTS)
+  const [storeCategories, setStoreCategories] = useState<StoreCategory[]>(initialCategories)
+  const browseProducts = React.useMemo(
+    () => catalogProducts.filter(product => product.category !== 'magazines'),
+    [catalogProducts]
+  )
+  const browseCategories = React.useMemo(
+    () => storeCategories.filter(category => category.slug !== 'magazines'),
+    [storeCategories]
+  )
+  const [storeCollections, setStoreCollections] = useState<StoreCollection[]>([])
+  const [storeReviews, setStoreReviews] = useState<StoreReview[]>([])
+  const [selectedCollectionId, setSelectedCollectionId] = useState('')
+  const [storeSettings, setStoreSettings] = useState<StoreSettings>(initialStoreSettings)
+  const [storefrontContent, setStorefrontContent] = useState<StorefrontContent>(initialStorefrontContent)
+  const [isCatalogLoaded, setIsCatalogLoaded] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false)
+  const [showBackToTop, setShowBackToTop] = useState(false)
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null)
+  const [isAuthLoaded, setIsAuthLoaded] = useState(false)
+  const [isAuthOpen, setIsAuthOpen] = useState(false)
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [accountInitialSection, setAccountInitialSection] = useState<'profile' | 'settings' | 'orders'>('profile')
+  const [authMode, setAuthMode] = useState<AuthMode>('login')
+  const [authNotice, setAuthNotice] = useState('')
+  const [checkoutAfterAuth, setCheckoutAfterAuth] = useState(signupResume?.resumeCheckout ?? false)
+
+  // Cart & Wishlist state
+  const [cartItems, setCartItems] = useState<CartItem[]>([])
+  const [cartOwnerId, setCartOwnerId] = useState<string | null>(null)
+  const [isBagOpen, setIsBagOpen] = useState(false)
+  const [cartFeedback, setCartFeedback] = useState<{
+    productName: string
+    timestamp: number
+    kind: 'added' | 'unavailable' | 'stock-limit'
+  } | null>(null)
+  const [wishlist, setWishlist] = useState<string[]>(signupResume?.wishlist ?? [])
+  const [wishlistOwnerId, setWishlistOwnerId] = useState<string | null>(null)
+  const [isWishlistOpen, setIsWishlistOpen] = useState(false)
+  const accountCartItems = useMemo(
+    () => authUser && cartOwnerId === authUser.id ? cartItems : [],
+    [authUser, cartOwnerId, cartItems]
+  )
+
+  useEffect(() => {
+    const updateBackToTopVisibility = () => setShowBackToTop(window.scrollY > 400)
+    window.addEventListener('scroll', updateBackToTopVisibility, { passive: true })
+    updateBackToTopVisibility()
+    return () => window.removeEventListener('scroll', updateBackToTopVisibility)
+  }, [])
+
+  // Modals state
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
+  const [paymentOrderId, setPaymentOrderId] = useState(() => new URLSearchParams(window.location.search).get('paymentOrder') ?? '')
+
+  useEffect(() => {
+    const handleHistoryChange = () => setPaymentOrderId(new URLSearchParams(window.location.search).get('paymentOrder') ?? '')
+    window.addEventListener('popstate', handleHistoryChange)
+    return () => window.removeEventListener('popstate', handleHistoryChange)
+  }, [])
+
+  // Sync dark mode class on html/body
+  useLayoutEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [isDarkMode])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(savedThemeStorageKey, isDarkMode ? 'dark' : 'light')
+    } catch (error) {
+      console.error('Unable to save the selected theme:', error)
+    }
+  }, [isDarkMode])
+
+  useEffect(() => {
+    if (!isAuthLoaded) return
+    try {
+      window.localStorage.removeItem(legacySavedCartStorageKey)
+    } catch (error) {
+      console.error('Unable to remove the unowned saved bag from this device:', error)
+    }
+  }, [isAuthLoaded])
+
+  useEffect(() => {
+    if (!isAuthLoaded || !authUser || cartOwnerId !== authUser.id) return
+    try {
+      window.localStorage.setItem(getSavedCartStorageKey(authUser.id), JSON.stringify(cartItems))
+    } catch (error) {
+      console.error('Unable to save the account bag:', error)
+    }
+  }, [authUser, cartItems, cartOwnerId, isAuthLoaded])
+
+  useEffect(() => {
+    if (!authUser || cartOwnerId !== authUser.id) return
+    const customizationIds = [...new Set(accountCartItems
+      .map(item => item.magazineCustomization?.customizationId)
+      .filter((id): id is string => Boolean(id)))]
+    if (!customizationIds.length) return
+    void fetch('/api/auth/magazine-uploads', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'touch', customizationIds })
+    }).then(async response => {
+      if (!response.ok) {
+        const result = await response.json() as { error?: string }
+        throw new Error(result.error || 'Saved magazine files could not be refreshed.')
+      }
+    }).catch(error => console.error('Unable to refresh active magazine upload retention:', error))
+  }, [authUser?.id, accountCartItems])
+
+  useEffect(() => {
+    const loadCatalog = async () => {
+      try {
+        const response = await fetch('/api/catalog', { cache: 'no-store' })
+        if (!response.ok) throw new Error(`Catalog lookup failed with status ${response.status}.`)
+        const data = await response.json() as {
+          products?: Product[]
+          categories?: StoreCategory[]
+          collections?: StoreCollection[]
+          reviews?: StoreReview[]
+          settings?: Partial<StoreSettings>
+          content?: Partial<StorefrontContent>
+        }
+        if (!Array.isArray(data.products) || !Array.isArray(data.categories)) {
+          throw new Error('The catalog service returned an invalid response.')
+        }
+        setCatalogProducts(data.products)
+        setStoreCategories(data.categories)
+        setStoreCollections(Array.isArray(data.collections) ? data.collections : [])
+        setStoreReviews(Array.isArray(data.reviews) ? data.reviews : [])
+        setStoreSettings(current => ({ ...current, ...data.settings }))
+        setStorefrontContent(current => ({ ...current, ...data.content }))
+      } catch (error) {
+        console.error('Unable to load the database storefront catalog, using the bundled catalog:', error)
+      } finally {
+        setIsCatalogLoaded(true)
+      }
+    }
+    void loadCatalog()
+  }, [])
+
+  useEffect(() => {
+    document.title = `${storeSettings.storeName || 'AUREL'} · ${storeSettings.tagline || 'Made With Love For You'}`
+  }, [storeSettings.storeName, storeSettings.tagline])
+
+  useEffect(() => {
+    if (activeCategory === 'magazines' || (activeCategory !== 'all' && !storeCategories.some(category => category.slug === activeCategory))) {
+      setActiveCategory('all')
+    }
+  }, [activeCategory, storeCategories])
+
+  useEffect(() => {
+    if (!signupResume) return
+    requestAnimationFrame(() => window.scrollTo({ top: signupResume.scrollY, behavior: 'auto' }))
+  }, [signupResume])
+
+  useEffect(() => {
+    if (!cartFeedback) return
+    const timeoutId = window.setTimeout(() => setCartFeedback(null), 2600)
+    return () => window.clearTimeout(timeoutId)
+  }, [cartFeedback])
+
+  useEffect(() => {
+    const loadAccount = async () => {
+      try {
+        const response = await fetch('/api/auth/me', { cache: 'no-store' })
+        if (response.status === 401) return
+        if (!response.ok) throw new Error(`Account lookup failed with status ${response.status}.`)
+        const data = await response.json() as { user: AuthUser }
+        setCartItems(readSavedCart(data.user.id))
+        setCartOwnerId(data.user.id)
+        setAuthUser(data.user)
+      } catch (error) {
+        console.error('Unable to restore account session:', error)
+      } finally {
+        setIsAuthLoaded(true)
+      }
+    }
+
+    void loadAccount()
+  }, [])
+
+  useEffect(() => {
+    if (!isAuthLoaded || !isCatalogLoaded) return
+    if (!authUser) {
+      setWishlistOwnerId(null)
+      setWishlist([])
+      setIsWishlistOpen(false)
+      return
+    }
+
+    try {
+      const serializedWishlist = window.localStorage.getItem(getWishlistStorageKey(authUser.id))
+      const savedWishlist: unknown = serializedWishlist
+        ? JSON.parse(serializedWishlist)
+        : signupResume?.wishlist ?? []
+      const validProductIds = new Set(catalogProducts.map(product => product.id))
+      setWishlist(
+        Array.isArray(savedWishlist)
+          ? savedWishlist.filter((id): id is string => typeof id === 'string' && validProductIds.has(id))
+          : []
+      )
+      setWishlistOwnerId(authUser.id)
+    } catch (error) {
+      console.error('Unable to load the account wishlist:', error)
+      setWishlist([])
+      setWishlistOwnerId(authUser.id)
+    }
+  }, [authUser, catalogProducts, isAuthLoaded, isCatalogLoaded, signupResume])
+
+  useEffect(() => {
+    if (!authUser || wishlistOwnerId !== authUser.id) return
+    try {
+      window.localStorage.setItem(getWishlistStorageKey(authUser.id), JSON.stringify(wishlist))
+    } catch (error) {
+      console.error('Unable to save the account wishlist:', error)
+    }
+  }, [authUser, wishlist, wishlistOwnerId])
+
+  useEffect(() => {
+    const callbackUrl = new URL(window.location.href)
+    const hashParams = new URLSearchParams(callbackUrl.hash.slice(1))
+    const accessToken = hashParams.get('access_token') ?? callbackUrl.searchParams.get('access_token')
+    const tokenHash = hashParams.get('token_hash') ?? callbackUrl.searchParams.get('token_hash')
+    const verificationType = hashParams.get('type') ?? callbackUrl.searchParams.get('type')
+    const verificationError = hashParams.get('error') ?? callbackUrl.searchParams.get('error')
+    const verificationErrorCode = hashParams.get('error_code') ?? callbackUrl.searchParams.get('error_code')
+    const isEmailChange = verificationType === 'email_change'
+    const clearVerificationParams = () => {
+      for (const key of ['access_token', 'type', 'error', 'error_code', 'error_description', 'token_hash']) {
+        callbackUrl.searchParams.delete(key)
+      }
+      callbackUrl.hash = ''
+      window.history.replaceState(null, '', `${callbackUrl.pathname}${callbackUrl.search}`)
+    }
+
+    if (verificationError) {
+      clearVerificationParams()
+      setAuthMode(isEmailChange ? 'login' : 'signup')
+      setAuthNotice(
+        verificationErrorCode === 'otp_expired'
+          ? isEmailChange
+            ? 'This email change link has expired or was already used. Sign in with your current email address and request a new link.'
+            : 'This confirmation link has expired or was already used. Sign in if you already verified your email, or sign up again to request a new link.'
+          : isEmailChange
+            ? 'The new email address could not be verified. Sign in with your current email address and request a new link.'
+            : 'The confirmation link could not be used. Sign in if you already verified your email, or request a new confirmation link.'
+      )
+      setIsAuthOpen(true)
+      return
+    }
+    if ((!accessToken && !tokenHash) || (verificationType !== 'signup' && verificationType !== 'email_change')) return
+
+    const verifyEmail = async () => {
+      try {
+        const response = await fetch(isEmailChange ? '/api/auth/confirm-email-change' : '/api/auth/verify', {
+          method: 'POST',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(accessToken ? { accessToken } : { tokenHash })
+        })
+        clearVerificationParams()
+        const data = await response.json() as { error?: string; user?: AuthUser }
+        if (!response.ok || !data.user) {
+          throw new Error(data.error || 'The email confirmation link could not be verified.')
+        }
+
+        const sessionResponse = await fetch('/api/auth/me', {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        })
+        const sessionData = await sessionResponse.json() as { error?: string; user?: AuthUser }
+        if (isEmailChange && (!sessionResponse.ok || !sessionData.user || sessionData.user.id !== data.user.id)) {
+          setAuthMode('login')
+          setAuthNotice('Your new email is verified. Please sign in with your updated email address.')
+          setIsAuthOpen(true)
+          return
+        }
+        if (!sessionResponse.ok || !sessionData.user || sessionData.user.id !== data.user.id) {
+          throw new Error(sessionData.error || 'Your email was verified, but this browser could not keep your sign-in session. Please sign in once to continue.')
+        }
+
+        setCartItems(readSavedCart(sessionData.user.id))
+        setCartOwnerId(sessionData.user.id)
+        setIsBagOpen(false)
+        setAuthUser(sessionData.user)
+        setAuthNotice('')
+        setIsAuthOpen(false)
+      } catch (error) {
+        console.error('Email confirmation link failed:', error)
+        setAuthMode(isEmailChange ? 'login' : 'signup')
+        setAuthNotice(error instanceof Error
+          ? error.message
+          : 'The email confirmation link could not be verified. Request a new confirmation link.')
+        setIsAuthOpen(true)
+      }
+    }
+
+    void verifyEmail()
+  }, [])
+
+  useEffect(() => {
+    if (!isAuthLoaded || !checkoutAfterAuth) return
+    if (authUser) {
+      setCheckoutAfterAuth(false)
+      setIsCheckoutOpen(true)
+    } else {
+      setAuthMode('login')
+      setIsAuthOpen(true)
+    }
+  }, [authUser, checkoutAfterAuth, isAuthLoaded])
+
+  useEffect(() => {
+    if (!isAuthLoaded) return
+    const accountUrl = new URL(window.location.href)
+    if (accountUrl.searchParams.get('account') !== 'orders') return
+    if (!authUser) {
+      setAuthMode('login')
+      setIsAuthOpen(true)
+      return
+    }
+    accountUrl.searchParams.delete('account')
+    window.history.replaceState(null, '', `${accountUrl.pathname}${accountUrl.search}${accountUrl.hash}`)
+    setAccountInitialSection('orders')
+    setIsProfileOpen(true)
+  }, [authUser, isAuthLoaded])
+
+  const totalBagCount = accountCartItems.reduce((acc, item) => acc + item.quantity, 0)
+
+  // Handlers
+  const smoothScrollTo = (target: number | HTMLElement, duration = 900) => {
+    if (scrollAnimationRef.current !== null) {
+      cancelAnimationFrame(scrollAnimationRef.current)
+      scrollAnimationRef.current = null
+      document.documentElement.style.scrollBehavior = originalScrollBehaviorRef.current ?? ''
+    }
+
+    const startY = window.scrollY
+    const targetY = Math.max(0, Math.min(
+      typeof target === 'number' ? target : startY + target.getBoundingClientRect().top,
+      document.documentElement.scrollHeight - window.innerHeight
+    ))
+    const distance = targetY - startY
+    const startTime = performance.now()
+    const previousScrollBehavior = document.documentElement.style.scrollBehavior
+    originalScrollBehaviorRef.current = previousScrollBehavior
+    document.documentElement.style.scrollBehavior = 'auto'
+
+    const animateScroll = (now: number) => {
+      const progress = Math.min((now - startTime) / duration, 1)
+      const easedProgress = progress < 0.5
+        ? 4 * progress ** 3
+        : 1 - ((-2 * progress + 2) ** 3) / 2
+      window.scrollTo({ top: startY + distance * easedProgress, behavior: 'instant' })
+
+      if (progress < 1) {
+        scrollAnimationRef.current = requestAnimationFrame(animateScroll)
+      } else {
+        scrollAnimationRef.current = null
+        document.documentElement.style.scrollBehavior = originalScrollBehaviorRef.current ?? previousScrollBehavior
+        originalScrollBehaviorRef.current = null
+      }
+    }
+
+    scrollAnimationRef.current = requestAnimationFrame(animateScroll)
+  }
+
+  const handleScrollBackToTop = () => {
+    if (scrollAnimationRef.current !== null) {
+      cancelAnimationFrame(scrollAnimationRef.current)
+      scrollAnimationRef.current = null
+      document.documentElement.style.scrollBehavior = originalScrollBehaviorRef.current ?? ''
+      originalScrollBehaviorRef.current = null
+    }
+
+    const scrollY = window.scrollY
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const duration = prefersReducedMotion
+      ? Math.min(1200, 650 + scrollY * 0.05)
+      : Math.min(3500, 1800 + scrollY * 0.15)
+    smoothScrollTo(0, duration)
+  }
+
+  const handleOpenCustomMagazine = () => {
+    setActiveTab('home')
+    setActiveCategory('all')
+    setSelectedCollectionId('')
+    setMagazineScrollRequest(request => request + 1)
+  }
+
+  const handleToggleTheme = () => {
+    const updateTheme = () => setIsDarkMode(prev => !prev)
+    const transitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => unknown
+    }
+    if (transitionDocument.startViewTransition) {
+      transitionDocument.startViewTransition(() => flushSync(updateTheme))
+    } else {
+      updateTheme()
+    }
+  }
+
+  const handleSelectCategory = (category: ProductCategory) => {
+    setSelectedCollectionId('')
+    if (category === 'magazines') {
+      setActiveCategory('all')
+      setActiveTab('home')
+      setMagazineScrollRequest(request => request + 1)
+      return
+    }
+    setActiveCategory(category)
+    setActiveTab('shop')
+    requestAnimationFrame(() => {
+      const collection = document.getElementById('collection-grid')
+      if (collection) smoothScrollTo(collection)
+    })
+  }
+
+  const handleToggleWishlist = (productId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!authUser) {
+      setAuthMode('login')
+      setIsAuthOpen(true)
+      return
+    }
+    setWishlist(prev => 
+      prev.includes(productId) 
+        ? prev.filter(id => id !== productId) 
+        : [...prev, productId]
+    )
+  }
+
+  const handleAddToCart = (item: CartItem): boolean => {
+    if (!authUser || cartOwnerId !== authUser.id) {
+      setAuthMode('login')
+      setAuthNotice('Sign in to add items to your personal bag.')
+      setIsAuthOpen(true)
+      return false
+    }
+    const product = catalogProducts.find(candidate => candidate.id === item.productId)
+    const currentQuantity = item.magazineCustomization ? 0 : accountCartItems
+      .filter(cartItem => !cartItem.magazineCustomization && cartItem.productId === item.productId && cartItem.variantId === item.variantId)
+      .reduce((total, cartItem) => total + cartItem.quantity, 0)
+    const variant = product?.variants?.find(candidate => candidate.id === item.variantId)
+    if (!item.magazineCustomization && product?.variants?.length && !variant) {
+      setSelectedProduct(product)
+      return false
+    }
+    const stockLimit = variant ? variant.stockQuantity : product?.stockQuantity
+    if (!item.magazineCustomization && typeof stockLimit === 'number' && currentQuantity + item.quantity > stockLimit) {
+      setCartFeedback({ productName: item.name, timestamp: Date.now(), kind: 'stock-limit' })
+      return false
+    }
+    setCartItems(prev => {
+      const existing = prev.find(
+        i => i.productId === item.productId
+          && i.variantId === item.variantId
+          && i.finish === item.finish
+          && i.recipientName === item.recipientName
+          && i.customMessage === item.customMessage
+          && JSON.stringify(i.customComponents ?? []) === JSON.stringify(item.customComponents ?? [])
+          && JSON.stringify(i.customGiftCustomization ?? null) === JSON.stringify(item.customGiftCustomization ?? null)
+          && i.magazineCustomization?.customizationId === item.magazineCustomization?.customizationId
+      )
+      if (existing) {
+        return prev.map(i => 
+          i.cartId === existing.cartId 
+            ? { ...i, quantity: i.quantity + item.quantity } 
+            : i
+        )
+      }
+      return [item, ...prev]
+    })
+    setCartFeedback({ productName: item.name, timestamp: Date.now(), kind: 'added' })
+    return true
+  }
+
+  const handleQuickAdd = (product: Product, e: React.MouseEvent): boolean => {
+    e.stopPropagation()
+    if (product.variants?.length) {
+      setSelectedProduct(product)
+      return false
+    }
+    if (product.stockQuantity === 0) {
+      setCartFeedback({ productName: product.name, timestamp: Date.now(), kind: 'stock-limit' })
+      return false
+    }
+    const newItem: CartItem = {
+      cartId: `${product.id}_${Date.now()}`,
+      productId: product.id,
+      name: product.name,
+      price: product.price,
+      quantity: 1,
+      imageUrl: product.imageUrl,
+      finish: product.availableFinishes?.[0]
+    }
+    return handleAddToCart(newItem)
+  }
+
+  const handleAddWishlistItemToBag = (product: Product) => {
+    if (product.variants?.length) {
+      setIsWishlistOpen(false)
+      setSelectedProduct(product)
+      return
+    }
+    const addedToBag = handleAddToCart({
+      cartId: `${product.id}_${Date.now()}`,
+      productId: product.id,
+      name: product.name,
+      price: product.price,
+      quantity: 1,
+      imageUrl: product.imageUrl,
+      finish: product.availableFinishes?.[0]
+    })
+    if (addedToBag) {
+      setWishlist(current => current.filter(productId => productId !== product.id))
+      setIsWishlistOpen(false)
+      setIsBagOpen(true)
+    }
+  }
+
+  const handleUpdateQuantity = (cartId: string, delta: number) => {
+    const item = accountCartItems.find(cartItem => cartItem.cartId === cartId)
+    const product = item && catalogProducts.find(candidate => candidate.id === item.productId)
+    const currentVariantQuantity = item
+      ? accountCartItems.filter(cartItem => !cartItem.magazineCustomization && cartItem.productId === item.productId && cartItem.variantId === item.variantId).reduce((total, cartItem) => total + cartItem.quantity, 0)
+      : 0
+    const variant = product?.variants?.find(candidate => candidate.id === item?.variantId)
+    const stockLimit = variant ? variant.stockQuantity : product?.stockQuantity
+    if (item && !item.magazineCustomization && typeof stockLimit === 'number' && currentVariantQuantity + delta > stockLimit) {
+      setCartFeedback({ productName: item.name, timestamp: Date.now(), kind: 'stock-limit' })
+      return
+    }
+    setCartItems(prev => 
+      prev.map(item => {
+        if (item.cartId === cartId) {
+          const newQty = item.quantity + delta
+          return newQty > 0 ? { ...item, quantity: newQty } : null
+        }
+        return item
+      }).filter(Boolean) as CartItem[]
+    )
+  }
+
+  const handleRemoveCartItem = (cartId: string) => {
+    setCartItems(prev => prev.filter(i => i.cartId !== cartId))
+  }
+
+  const handleCustomizeMagazine = (magazineCustomization: MagazineCustomization): boolean => {
+    const magProduct = catalogProducts.find(product =>
+      product.category.toLowerCase() === 'magazines'
+      && product.isCustomizable
+      && product.availableFinishes?.includes(magazineCustomization.printFinish)
+    ) ?? PRODUCTS.find(product => product.id === 'prod_magazine_legacy')
+    if (!magProduct) {
+      setCartFeedback({
+        productName: 'Magazine customization is currently unavailable.',
+        timestamp: Date.now(),
+        kind: 'unavailable'
+      })
+      return false
+    }
+    const customItem: CartItem = {
+      cartId: `mag_${crypto.randomUUID()}`,
+      productId: magProduct.id,
+      name: `Custom Magazine (${magazineCustomization.recipientName.toUpperCase()})`,
+      price: MAGAZINE_PRICES[magazineCustomization.pageCount],
+      quantity: 1,
+      imageUrl: magProduct.imageUrl,
+      magazineCustomization
+    }
+    return handleAddToCart(customItem)
+  }
+
+  const handleAddCustomHamperToBag = (customItem: CartItem) => {
+    handleAddToCart(customItem)
+    setActiveTab('shop')
+  }
+
+  const handleOrderSuccess = async (order: OrderDetails, idempotencyKey: string): Promise<OrderDetails> => {
+    if (!authUser) throw new Error('Sign in to save your order to your account.')
+    const response = await fetch('/api/auth/orders', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        idempotencyKey,
+        customer: {
+          customerName: order.customerName,
+          phoneNumber: order.phoneNumber,
+          email: order.email,
+          address: order.address,
+          city: order.city,
+          state: order.state,
+          postalCode: order.postalCode,
+          notes: order.notes
+        },
+        items: order.items.map(item => ({
+          cartId: item.cartId,
+          productId: item.productId,
+          quantity: item.quantity,
+          variantId: item.variantId,
+          finish: item.finish,
+          recipientName: item.recipientName,
+          customMessage: item.customMessage,
+          customComponents: item.customGiftCustomization ? undefined : item.customComponents,
+          customGiftCustomization: item.customGiftCustomization ? {
+            ...(item.customGiftCustomization.box ? { boxId: item.customGiftCustomization.box.id } : {}),
+            components: item.customGiftCustomization.components.map(component => ({
+              productId: component.productId,
+              quantity: component.quantity,
+              magazinePageCount: component.magazinePageCount
+            }))
+          } : undefined,
+          magazineCustomization: item.magazineCustomization
+        }))
+      })
+    })
+    const data = await response.json() as { order?: OrderDetails; error?: string }
+    if (!response.ok || !data.order) throw new Error(data.error || 'Your order could not be saved to your account.')
+    const paymentUrl = new URL(window.location.href)
+    paymentUrl.searchParams.set('paymentOrder', data.order.orderId)
+    window.history.pushState(null, '', paymentUrl)
+    setPaymentOrderId(data.order.orderId)
+    setIsCheckoutOpen(false)
+    setCartItems([])
+    return data.order
+  }
+
+  const closePaymentPage = () => {
+    const storefrontUrl = new URL(window.location.href)
+    storefrontUrl.searchParams.delete('paymentOrder')
+    window.history.pushState(null, '', storefrontUrl)
+    setPaymentOrderId('')
+  }
+
+  const handleLogout = async () => {
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' })
+      if (!response.ok) throw new Error(`Sign out failed with status ${response.status}.`)
+      if (authUser) {
+        try {
+          window.localStorage.removeItem(getSavedCartStorageKey(authUser.id))
+        } catch (error) {
+          console.error('Unable to remove the signed-out account bag from this device:', error)
+        }
+      }
+      setAuthUser(null)
+      setCartItems([])
+      setCartOwnerId(null)
+      setCartFeedback(null)
+      setIsBagOpen(false)
+      setIsCheckoutOpen(false)
+      setCheckoutAfterAuth(false)
+      setIsProfileOpen(false)
+    } catch (error) {
+      console.error('Unable to sign out:', error)
+      window.alert('Unable to sign out right now. Please try again.')
+    }
+  }
+
+  const handleAccountDeleted = () => {
+    if (authUser) {
+      try {
+        window.localStorage.removeItem(getWishlistStorageKey(authUser.id))
+        window.localStorage.removeItem(getSavedCartStorageKey(authUser.id))
+      } catch (error) {
+        console.error('Unable to remove deleted account data from this device:', error)
+      }
+    }
+    setAuthUser(null)
+    setCartItems([])
+    setCartOwnerId(null)
+    setCartFeedback(null)
+    setIsBagOpen(false)
+    setIsCheckoutOpen(false)
+    setCheckoutAfterAuth(false)
+    setWishlist([])
+    setWishlistOwnerId(null)
+    setIsWishlistOpen(false)
+    setIsProfileOpen(false)
+  }
+
+  if (paymentOrderId) {
+    return <React.Suspense fallback={<div className="min-h-screen bg-[#FAF7F2]" />}>
+      <PaymentPage
+        orderId={paymentOrderId}
+        isDarkMode={isDarkMode}
+        onContinueShopping={closePaymentPage}
+        onViewOrders={() => {
+          closePaymentPage()
+          setAccountInitialSection('orders')
+          setIsProfileOpen(true)
+        }}
+      />
+    </React.Suspense>
+  }
+
+  return (
+    <MotionConfig
+      reducedMotion="user"
+      transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+    >
+    <div className={`aurel-theme-transition theme-surface min-h-screen font-sans-body selection:bg-[#B36D6D]/20 selection:text-[#B36D6D] ${
+      isDarkMode
+        ? 'bg-[#181615] text-[#F3EBE6]'
+        : 'bg-[#FAF7F2] text-[#2C2422]'
+    }`}>
+      
+      {/* Top Navigation */}
+      <Navigation
+        products={browseProducts}
+        settings={storeSettings}
+        isDarkMode={isDarkMode}
+        onToggleTheme={handleToggleTheme}
+        onOpenSidebar={() => setIsSidebarOpen(true)}
+        onOpenBag={() => setIsBagOpen(true)}
+        onOpenWishlist={() => {
+          if (authUser) {
+            setIsWishlistOpen(true)
+          } else {
+            setAuthMode('login')
+            setIsAuthOpen(true)
+          }
+        }}
+        bagCount={totalBagCount}
+        wishlistCount={wishlist.length}
+        searchQuery={searchQuery}
+        onSearchChange={query => {
+          setSearchQuery(query)
+          if (query.trim()) {
+            setActiveCategory('all')
+            setActiveTab('shop')
+          }
+        }}
+        onSearchSubmit={() => {
+          setActiveCategory('all')
+          setActiveTab('shop')
+          requestAnimationFrame(() => {
+            const collection = document.getElementById('collection-grid')
+            if (collection) smoothScrollTo(collection)
+          })
+        }}
+        onSelectProduct={product => {
+          setActiveCategory('all')
+          setActiveTab('shop')
+          setSelectedProduct(product)
+        }}
+        activeTab={activeTab}
+        onSelectTab={(tab) => {
+          setActiveTab(tab as any)
+          if (tab === 'home' || tab === 'shop') {
+            setActiveCategory('all')
+          }
+          if (tab === 'home') {
+            setMagazineScrollRequest(0)
+            requestAnimationFrame(() => smoothScrollTo(0))
+          } else if (tab === 'shop') {
+            const el = document.getElementById('collection-grid')
+            if (el) smoothScrollTo(el)
+          } else if (tab === 'story') {
+            const el = document.getElementById('our-story')
+            if (el) smoothScrollTo(el)
+          } else if (tab === 'contact') {
+            setIsChatbotOpen(true)
+            const el = document.getElementById('concierge')
+            if (el) smoothScrollTo(el)
+          }
+        }}
+        onOpenBuilder={() => setActiveTab('builder')}
+        onOpenCustomMagazine={handleOpenCustomMagazine}
+        user={authUser}
+        onOpenAuth={(mode) => {
+          setAuthMode(mode)
+          setIsAuthOpen(true)
+        }}
+        onOpenProfile={() => {
+          setAccountInitialSection('profile')
+          setIsProfileOpen(true)
+        }}
+        onOpenSettings={() => {
+          setAccountInitialSection('settings')
+          setIsProfileOpen(true)
+        }}
+        onLogout={() => { void handleLogout() }}
+      />
+
+      <AnimatePresence>
+        {cartFeedback && (
+          <motion.div
+            key={cartFeedback.timestamp}
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            role="status"
+            aria-live="polite"
+            className={`fixed right-4 top-24 z-40 max-w-[calc(100vw-2rem)] rounded-2xl border px-4 py-3 text-sm shadow-lg ${
+              isDarkMode
+                ? 'border-[#493936] bg-[#211B19] text-[#F3EBE6]'
+                : 'border-[#E8D4CB] bg-[#FFFCF9] text-[#2C2523]'
+            }`}
+          >
+            <span className={`font-semibold ${cartFeedback.kind === 'added' ? 'text-[#B36D6D]' : 'text-amber-700'}`}>
+              {cartFeedback.kind === 'added'
+                ? 'Added to bag'
+                : cartFeedback.kind === 'stock-limit'
+                  ? 'Stock limit reached'
+                  : 'Unable to add to bag'}
+            </span>
+            <span className="ml-2">{cartFeedback.productName}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Fluid Sidebar Menu */}
+      <DeferredMount active={isSidebarOpen}><Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        isDarkMode={isDarkMode}
+        onSelectCategory={handleSelectCategory}
+        onOpenCustomBuilder={() => setActiveTab('builder')}
+        onOpenCustomMagazine={handleOpenCustomMagazine}
+        onOpenStory={() => {
+          setActiveTab('story')
+          const el = document.getElementById('our-story')
+          if (el) smoothScrollTo(el)
+        }}
+        onOpenConcierge={() => {
+          setIsChatbotOpen(true)
+          const el = document.getElementById('concierge')
+          if (el) smoothScrollTo(el)
+        }}
+        onOpenChatbot={() => setIsChatbotOpen(true)}
+        activeCategory={activeCategory}
+        user={authUser}
+        onOpenProfile={() => {
+          setAccountInitialSection('profile')
+          setIsProfileOpen(true)
+        }}
+        onOpenAuth={(mode) => {
+          setAuthMode(mode)
+          setIsAuthOpen(true)
+        }}
+        onLogout={() => { void handleLogout() }}
+        categories={storeCategories}
+        settings={storeSettings}
+      /></DeferredMount>
+
+      {/* Main Content Area with Faded Page Transitions */}
+      <AnimatePresence mode="wait">
+        {activeTab === 'builder' ? (
+          <motion.div
+            key="builder-view"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <React.Suspense fallback={null}><CustomGiftBuilder
+              isDarkMode={isDarkMode}
+              categories={storeCategories}
+              products={catalogProducts}
+              onClose={() => setActiveTab('home')}
+              onAddCustomHamperToBag={handleAddCustomHamperToBag}
+            /></React.Suspense>
+          </motion.div>
+        ) : (
+          <motion.main
+            key="home-and-shop-view"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {activeCategory !== 'hair-accessories' && (
+              <>
+                {/* Hero Section */}
+                <Hero
+                  isDarkMode={isDarkMode}
+                  content={storefrontContent}
+                  onExplore={() => {
+                    const el = document.getElementById('collection-grid')
+                    if (el) smoothScrollTo(el)
+                  }}
+                  onCreateMemory={() => setActiveTab('builder')}
+                />
+                {storefrontContent.announcement && <div role="status" className="border-y border-[#E8D4CB] bg-[#F4E7E1] px-4 py-3 text-center text-sm text-[#714F49]">
+                  {storefrontContent.announcement}
+                </div>}
+
+                {/* Moments Section */}
+                <LazyViewport minHeight={300}>
+                  <MomentsSection isDarkMode={isDarkMode} categories={storeCategories} onSelectMoment={handleSelectCategory} />
+                </LazyViewport>
+
+                {/* Visual Categories Grid */}
+                <LazyViewport minHeight={520}>
+                  <CategoryGrid
+                    isDarkMode={isDarkMode}
+                    categories={storeCategories}
+                    onSelectCategory={handleSelectCategory}
+                    onOpenCustomMagazine={handleOpenCustomMagazine}
+                  />
+                </LazyViewport>
+              </>
+            )}
+
+            {/* Product Catalog with Sort & Filter Controls */}
+            <LazyViewport id="collection-grid" minHeight={720}>
+              <ProductCatalog
+                isDarkMode={isDarkMode}
+                products={browseProducts}
+                categories={browseCategories}
+                collections={storeCollections}
+                activeCollectionId={selectedCollectionId}
+                onSelectCollection={collectionId => {
+                  setSelectedCollectionId(collectionId)
+                  setActiveCategory('all')
+                }}
+                activeCategory={activeCategory}
+                onSelectCategory={category => { setSelectedCollectionId(''); setActiveCategory(category) }}
+                onSelectProduct={prod => setSelectedProduct(prod)}
+                onQuickAdd={handleQuickAdd}
+                wishlist={wishlist}
+                onToggleWishlist={handleToggleWishlist}
+                searchQuery={searchQuery}
+              />
+            </LazyViewport>
+
+            {activeCategory !== 'hair-accessories' && (
+              <>
+                {/* Magazine Feature Section with Live Preview */}
+                <LazyViewport id="magazine-customizer" minHeight={620} forceVisible={magazineScrollRequest > 0}>
+                  <MagazineShowcase
+                    isDarkMode={isDarkMode}
+                    settings={storeSettings}
+                    userId={authUser?.id}
+                    onRequireAuth={() => {
+                      setAuthMode('login')
+                      setIsAuthOpen(true)
+                    }}
+                    onCustomizeMagazine={handleCustomizeMagazine}
+                    scrollRequestId={magazineScrollRequest}
+                    onScrollToPreview={target => {
+                      const targetY = window.scrollY + target.getBoundingClientRect().top - 88
+                      smoothScrollTo(targetY, 1100)
+                    }}
+                  />
+                </LazyViewport>
+
+                {/* Trust, Story, Testimonials & Concierge Support */}
+                <LazyViewport minHeight={760}>
+                  <StoryAndReviews
+                    isDarkMode={isDarkMode}
+                    settings={storeSettings}
+                    aboutText={storefrontContent.aboutText}
+                    reviews={storeReviews}
+                    onExploreGifts={() => {
+                      const el = document.getElementById('collection-grid')
+                      if (el) smoothScrollTo(el)
+                    }}
+                  />
+                </LazyViewport>
+              </>
+            )}
+          </motion.main>
+        )}
+      </AnimatePresence>
+
+      {/* Product Detail Modal */}
+      <DeferredMount active={Boolean(selectedProduct)}><ProductDetailModal
+        product={selectedProduct}
+        isDarkMode={isDarkMode}
+        onClose={() => setSelectedProduct(null)}
+        onAddToCart={handleAddToCart}
+        isWishlisted={selectedProduct ? wishlist.includes(selectedProduct.id) : false}
+        onToggleWishlist={handleToggleWishlist}
+        isAuthenticated={Boolean(authUser)}
+        reviews={storeReviews.filter(review => review.productId === selectedProduct?.id)}
+      /></DeferredMount>
+
+      <DeferredMount active={isWishlistOpen && Boolean(authUser)}><WishlistDrawer
+        isOpen={isWishlistOpen && Boolean(authUser)}
+        isDarkMode={isDarkMode}
+        products={catalogProducts.filter(product => wishlist.includes(product.id))}
+        onClose={() => setIsWishlistOpen(false)}
+        onRemove={productId => setWishlist(current => current.filter(id => id !== productId))}
+        onAddToBag={handleAddWishlistItemToBag}
+        onOpenBag={() => {
+          setIsWishlistOpen(false)
+          setIsBagOpen(true)
+        }}
+      /></DeferredMount>
+
+      {/* Sliding Cart Drawer */}
+      <DeferredMount active={isBagOpen}><CartDrawer
+        isOpen={isBagOpen}
+        onClose={() => setIsBagOpen(false)}
+        isDarkMode={isDarkMode}
+        cartItems={accountCartItems}
+        onClearBag={() => {
+          setCartItems([])
+          setCartFeedback(null)
+        }}
+        onUpdateQuantity={handleUpdateQuantity}
+        onRemoveItem={handleRemoveCartItem}
+        onProceedToCheckout={() => {
+          const unavailableItem = accountCartItems.find(item => {
+            const product = catalogProducts.find(candidate => candidate.id === item.productId)
+            const totalQuantity = accountCartItems
+              .filter(cartItem => !cartItem.magazineCustomization && cartItem.productId === item.productId)
+              .reduce((total, cartItem) => total + cartItem.quantity, 0)
+            return !item.magazineCustomization
+              && typeof product?.stockQuantity === 'number'
+              && totalQuantity > product.stockQuantity
+          })
+          if (unavailableItem) {
+           setCartFeedback({ productName: unavailableItem.name, timestamp: Date.now(), kind: 'stock-limit' })
+            return
+          }
+          setIsBagOpen(false)
+          setCheckoutAfterAuth(true)
+        }}
+        onExplore={() => {
+          const el = document.getElementById('collection-grid')
+          if (el) smoothScrollTo(el)
+        }}
+      /></DeferredMount>
+
+      {/* Demo checkout and WhatsApp order handoff */}
+      <DeferredMount active={isCheckoutOpen}><CheckoutModal
+        isOpen={isCheckoutOpen}
+        onClose={() => setIsCheckoutOpen(false)}
+        isDarkMode={isDarkMode}
+        cartItems={accountCartItems}
+        authUser={authUser}
+        settings={storeSettings}
+        onOrderSuccess={handleOrderSuccess}
+      /></DeferredMount>
+
+      <DeferredMount active={isAuthOpen}><AuthModal
+        isOpen={isAuthOpen}
+        mode={authMode}
+        isDarkMode={isDarkMode}
+        onClose={() => { setIsAuthOpen(false); setAuthNotice('') }}
+        onModeChange={setAuthMode}
+        notice={authNotice}
+        onSignupPending={() => {
+          try {
+            const resumeState: SignupResumeState = {
+              activeTab,
+              activeCategory,
+              wishlist,
+              isDarkMode,
+              scrollY: window.scrollY,
+              resumeCheckout: checkoutAfterAuth,
+              createdAt: Date.now()
+            }
+            window.localStorage.setItem(signupResumeStorageKey, JSON.stringify(resumeState))
+          } catch (error) {
+            console.error('Unable to save the page state for email confirmation:', error)
+          }
+        }}
+        onAuthenticated={user => {
+          setCartItems(readSavedCart(user.id))
+          setCartOwnerId(user.id)
+          setIsBagOpen(false)
+          setAuthUser(user)
+          setAuthNotice('')
+          setIsAuthOpen(false)
+        }}
+      /></DeferredMount>
+
+      <DeferredMount active={Boolean(authUser && isProfileOpen)}>
+        {authUser && <AccountModal
+          isOpen={isProfileOpen}
+          initialSection={accountInitialSection}
+          user={authUser}
+          isDarkMode={isDarkMode}
+          onClose={() => setIsProfileOpen(false)}
+          onProfileUpdated={setAuthUser}
+          onOpenWishlist={() => {
+            setIsProfileOpen(false)
+            setIsWishlistOpen(true)
+          }}
+          onOpenHelp={() => {
+            setIsProfileOpen(false)
+            setIsChatbotOpen(true)
+          }}
+          onLogout={() => { void handleLogout() }}
+          onAccountDeleted={handleAccountDeleted}
+        />}
+      </DeferredMount>
+
+      <AnimatePresence>
+        {showBackToTop && !selectedProduct && (
+          <motion.button
+            initial={{ opacity: 0, y: 8, scale: 0.92 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.92 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            whileHover={{ scale: 1.08, y: -2 }}
+            whileTap={{ scale: 0.92 }}
+            onClick={handleScrollBackToTop}
+            aria-label="Scroll back to top"
+            title="Back to top"
+            className={`theme-surface fixed bottom-24 right-6 z-50 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border shadow-lg backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#B36D6D] ${
+              isDarkMode
+                ? 'border-[#493936] bg-[#211B19]/90 text-[#E2B7B0] hover:bg-[#B36D6D] hover:text-white'
+                : 'border-[#EAD7CF] bg-white/90 text-[#B36D6D] hover:bg-[#B36D6D] hover:text-white'
+            }`}
+          >
+            <motion.span
+              whileHover={{ y: -3 }}
+              whileTap={{ y: -5 }}
+              transition={{ type: 'spring', stiffness: 360, damping: 18 }}
+            >
+              <ArrowUp className="h-4 w-4" />
+            </motion.span>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      <motion.button
+        whileHover={{ scale: 1.08 }}
+        whileTap={{ scale: 0.92 }}
+        onClick={() => setIsChatbotOpen(true)}
+        aria-label="Open AUREL Assistant"
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 rounded-full bg-[#B36D6D] p-4 text-white shadow-xl transition-all hover:bg-[#9E5B5B] hover:shadow-2xl"
+      >
+        <span className="relative flex h-3 w-3">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-200 opacity-75" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-white" />
+        </span>
+        <Sparkles className="h-5 w-5 text-white" />
+        <span className="hidden font-sans-body text-xs font-semibold uppercase tracking-wider sm:inline">AUREL Assistant</span>
+      </motion.button>
+      <DeferredMount active={isChatbotOpen}><ChatbotModal
+        isOpen={isChatbotOpen}
+        onClose={() => setIsChatbotOpen(false)}
+        onOpen={() => setIsChatbotOpen(true)}
+        showLauncher={false}
+        isDarkMode={isDarkMode}
+        user={authUser}
+        isAuthLoaded={isAuthLoaded}
+        onNavigateToBuilder={() => setActiveTab('builder')}
+      /></DeferredMount>
+
+      {/* Footer */}
+      <LazyViewport minHeight={360}>
+        <Footer
+          isDarkMode={isDarkMode}
+          settings={storeSettings}
+          content={storefrontContent}
+          onSelectCategory={handleSelectCategory}
+          onOpenStory={() => {
+            setActiveTab('home')
+            setTimeout(() => {
+              const el = document.getElementById('our-story')
+              if (el) smoothScrollTo(el)
+            }, 100)
+          }}
+          onOpenConcierge={() => {
+            setActiveTab('home')
+            setTimeout(() => {
+              const el = document.getElementById('concierge')
+              if (el) smoothScrollTo(el)
+            }, 100)
+          }}
+        />
+      </LazyViewport>
+
+    </div>
+    </MotionConfig>
+  )
+}
+
+export default function App() {
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+    return <React.Suspense fallback={<div className="min-h-screen bg-[#f7f3ef]" />}><AdminApp /></React.Suspense>
+  }
+  return <StorefrontApp />
+}
