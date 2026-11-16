@@ -1,14 +1,10 @@
 import { GoogleGenAI } from '@google/genai'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-
-interface ChatMessage {
-  role: string
-  content: string
-}
+import { validateChatRequest } from './security-config.js'
 
 interface ChatPayload {
-  messages?: ChatMessage[]
-  model?: string
+  messages?: unknown[]
+  model?: unknown
 }
 
 type ChatRequest = IncomingMessage & { body?: unknown }
@@ -48,21 +44,20 @@ export async function chatHandler(req: ChatRequest, res: ServerResponse): Promis
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
       ? req.body as ChatPayload
       : {}
-    const { messages, model } = body
 
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      sendJson(res, 400, { error: 'Messages array is required' })
+    const validation = validateChatRequest(body)
+    if (!validation.ok) {
+      sendJson(res, validation.status, { error: validation.error })
       return
     }
 
-    const targetModel = model || 'gemini-2.8-flash'
-    const contents = messages.map((msg) => ({
+    const contents = validation.messages.map((msg) => ({
       role: msg.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: msg.content }]
     }))
 
     const response = await ai.models.generateContent({
-      model: targetModel,
+      model: validation.model,
       contents,
       config: {
         systemInstruction: AUREL_ASSISTANT_SYSTEM_INSTRUCTION,
@@ -75,10 +70,9 @@ export async function chatHandler(req: ChatRequest, res: ServerResponse): Promis
 
     sendJson(res, 200, { reply: cleanReply })
   } catch (error: unknown) {
-    console.error('Gemini API Error:', error)
+    console.error('Gemini API Error: request handling failed')
     sendJson(res, 500, {
-      error: 'Unable to communicate with AUREL Assistant at this time',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Unable to communicate with AUREL Assistant at this time'
     })
   }
 }

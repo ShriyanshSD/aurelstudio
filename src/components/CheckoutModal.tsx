@@ -130,10 +130,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     }
   }
 
-  const getWhatsAppUrl = (order: OrderDetails) => {
-    const brandWhatsAppNumber = normalizeWhatsAppNumber(settings.whatsappNumber) || '919999200913'
-    return `https://wa.me/${brandWhatsAppNumber}?text=${encodeURIComponent(createWhatsAppMessage(order))}`
-  }
+  const brandWhatsAppNumber = normalizeWhatsAppNumber(settings.whatsappNumber)
+  const getWhatsAppUrl = (order: OrderDetails) =>
+    `https://wa.me/${brandWhatsAppNumber}?text=${encodeURIComponent(createWhatsAppMessage(order))}`
 
   const handleCopyWhatsAppMessage = (order: OrderDetails) => {
     const message = createWhatsAppMessage(order)
@@ -276,15 +275,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                 {/* WhatsApp Actions */}
                 <div className="pt-2 max-w-lg mx-auto space-y-3">
-                  <a
-                    href={getWhatsAppUrl(completedOrder)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wider shadow-lg transition-all flex items-center justify-center gap-2"
-                  >
-                    <span>Continue to payment</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </a>
+                  {brandWhatsAppNumber && (
+                    <a
+                      href={getWhatsAppUrl(completedOrder)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wider shadow-lg transition-all flex items-center justify-center gap-2"
+                    >
+                      <span>Continue to payment</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </a>
+                  )}
 
                   <button
                     onClick={onClose}

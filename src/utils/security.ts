@@ -25,11 +25,20 @@ export interface ValidationResult {
  */
 export function sanitizeInput(input: string): string {
   if (!input) return ''
-  return input
-    .replace(/[<>]/g, '')
-    .replace(/javascript:/gi, '')
-    .replace(/on\w+=/gi, '')
+
+  const normalized = input
+    .replace(/\u0000/g, '')
+    .replace(/<\s*script[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/javascript\s*:/gi, '')
+    .replace(/vbscript\s*:/gi, '')
+    .replace(/data\s*:\s*text\/html/gi, '')
+    .replace(/on\w+\s*=/gi, '')
+    .replace(/[<>"'&]/g, '')
+    .replace(/\s+/g, ' ')
     .trim()
+
+  return normalized
 }
 
 /**

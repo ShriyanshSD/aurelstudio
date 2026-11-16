@@ -13,6 +13,7 @@ import type { AuthMode } from './components/AuthModal'
 import { Product, ProductCategory, CartItem, OrderDetails, FinishType, AuthUser, MagazineCustomization, StoreCategory, StoreSettings, StorefrontContent, StoreCollection, StoreReview } from './types'
 import { PRODUCTS } from './data/products'
 import { MAGAZINE_PRICES } from './data/magazinePricing'
+import type { PaymentConfig } from './utils/payment'
 
 const AdminApp = React.lazy(() => import('./AdminApp'))
 const Sidebar = React.lazy(() => import('./components/Sidebar').then(module => ({ default: module.Sidebar })))
@@ -184,7 +185,7 @@ const initialStoreSettings: StoreSettings = {
   description: 'Curated luxury memory magazines, botanical bouquets, eternal single blossoms, and thoughtful keepsakes.',
   contactEmail: 'aruelstudio22@gmail.com',
   phone: '',
-  whatsappNumber: '919999200913',
+  whatsappNumber: '',
   instagramUrl: 'https://www.instagram.com/_.aurelstudio._?psln=YnRvcGt3dTNyM2V3',
   facebookUrl: '',
   deliveryNote: 'Pan India Delivery'
@@ -389,6 +390,30 @@ function StorefrontApp() {
       }
     }
     void loadCatalog()
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    const loadPaymentConfig = async () => {
+      try {
+        const response = await fetch('/api/payment/config', { cache: 'no-store' })
+        const data = await response.json() as { config?: PaymentConfig; error?: string }
+        const whatsappNumber = data.config?.whatsappNumber
+        if (!response.ok || !whatsappNumber) {
+          throw new Error(data.error || 'Public WhatsApp contact is unavailable.')
+        }
+        if (active) {
+          setStoreSettings(current => current.whatsappNumber
+            ? current
+            : { ...current, whatsappNumber })
+        }
+      } catch (error) {
+        console.error('Unable to load the public WhatsApp contact:', error)
+      }
+    }
+
+    void loadPaymentConfig()
+    return () => { active = false }
   }, [])
 
   useEffect(() => {

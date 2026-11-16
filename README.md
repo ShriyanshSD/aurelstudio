@@ -164,7 +164,7 @@ The dashboard adds API routes to the existing shared `api/index.ts` function, so
    - `ADMIN_SESSION_ENCRYPTION_KEY` — canonical base64-encoded 32-byte random key used to encrypt persisted Supabase tokens for owner sessions. Keep it server-side; losing or rotating it invalidates existing owner sessions.
    - `AUREL_UPI_ID` — public receiving UPI ID displayed in checkout and encoded in UPI payment links.
    - `AUREL_UPI_PAYEE_NAME` — public payee name used in payment links.
-   - `AUREL_WHATSAPP_NUMBER` — public WhatsApp destination, with or without the `91` country prefix.
+   - `AUREL_WHATSAPP_NUMBER` — public WhatsApp destination, with or without the `91` country prefix. The server provides it to the storefront and uses it when no owner-managed contact number is saved.
    - `GMAIL_USER` — Gmail account used by the backend SMTP sender, `aurelstudiomain@gmail.com`.
    - `GMAIL_APP_PASSWORD` — the Gmail App Password for that account. Keep it server-side and never commit it or expose it to the frontend.
 5. Add the variables to the Vercel environments where they are needed (Production, Preview, and/or Development). Preview deployments should use the appropriate preview origin for `APP_URL`; do not point production signups at localhost.

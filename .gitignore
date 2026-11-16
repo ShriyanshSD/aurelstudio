@@ -9,3 +9,4 @@ coverage/
 !.env.example
 android/.gradle/
 android/app/build/
+

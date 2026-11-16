@@ -26,6 +26,7 @@ import { indiaCitiesHandler, indiaStatesHandler } from './locations-handler'
 import { adminApiHandler, publicCatalogHandler } from './admin-handler'
 import { handleNativeCors } from './native-origin'
 import { getSecurityHeaders } from './security-headers'
+import { enforceRouteRateLimit, getRateLimitPolicy, validateChatRequest } from './security-config'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -53,6 +54,10 @@ const app = express()
 const PORT = Number.isFinite(configuredPort) && configuredPort > 0 ? configuredPort : 3000
 const securityHeaders = getSecurityHeaders(isProduction)
 
+if (isProduction && !process.env.GEMINI_API_KEY) {
+  throw new Error('GEMINI_API_KEY is required in production.')
+}
+
 app.use((_req, res, next) => {
   for (const [name, value] of Object.entries(securityHeaders)) {
     res.setHeader(name, value)
@@ -65,7 +70,21 @@ app.use((req, res, next) => {
   next()
 })
 app.use('/api/admin/products/upload', express.json({ limit: '4mb' }))
-app.use(express.json())
+app.use('/api/chat', express.json({ limit: '64kb' }))
+app.use(express.json({ limit: '64kb' }))
+app.use(async (req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next()
+  const policy = getRateLimitPolicy(req.path)
+  if (!policy) return next()
+
+  const accountKey = typeof req.body === 'object' && req.body && !Array.isArray(req.body) && 'email' in req.body
+    ? String((req.body as Record<string, unknown>).email).trim().toLowerCase()
+    : undefined
+
+  const allowed = await enforceRouteRateLimit(req, res, policy, accountKey)
+  if (!allowed) return
+  next()
+})
 app.get('/api/catalog', (req, res) => publicCatalogHandler(req, res))
 app.all('/api/admin/*', (req, res) => adminApiHandler(req, res))
 app.post('/api/auth/signup', (req, res) => signupHandler(req, res))
@@ -113,17 +132,17 @@ Assist the user with thoughtful gift recommendations, emotional dedication wordi
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { messages, model } = req.body
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'Messages array is required' })
+    const validation = validateChatRequest(req.body)
+    if (!validation.ok) {
+      return res.status(validation.status).json({ error: validation.error })
     }
 
-    const contents = messages.map((msg: { role: string; content: string }) => ({
+    const contents = validation.messages.map((msg) => ({
       role: msg.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: msg.content }]
     }))
     const response = await ai.models.generateContent({
-      model: model || 'gemini-3.8-flash',
+      model: validation.model,
       contents,
       config: {
         systemInstruction: AUREL_ASSISTANT_SYSTEM_INSTRUCTION,
@@ -134,10 +153,9 @@ app.post('/api/chat', async (req, res) => {
     const replyText = response.text || 'I am here to help you craft an unforgettable keepsake for your cherished moments.'
     return res.json({ reply: replyText.replace(/[-;]/g, ' ') })
   } catch (error: any) {
-    console.error('Gemini API Error:', error)
+    console.error('Gemini API Error: request handling failed')
     return res.status(500).json({
-      error: 'Unable to communicate with AUREL Assistant at this time',
-      details: error.message || 'Unknown error'
+      error: 'Unable to communicate with AUREL Assistant at this time'
     })
   }
 })

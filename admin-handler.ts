@@ -5,6 +5,7 @@ import { PRODUCTS } from './src/data/products.js'
 import type { Product, StorefrontContent } from './src/types/index.js'
 import { createMagazineSignedDownloadUrl, getSupabaseAuthKey, getSupabaseConfig, supabaseRequest } from './auth-handler.js'
 import { normalizeValidPhoneNumber } from './src/utils/accountValidation.js'
+import { normalizeWhatsAppNumber } from './src/utils/payment.js'
 import { sendOrderConfirmationEmail, sendOrderStatusEmail } from './email-service.js'
 
 interface AdminRequest extends IncomingMessage {
@@ -221,7 +222,7 @@ const defaultSettings: StoreSettings = {
   description: 'Curated luxury memory magazines, botanical bouquets, eternal single blossoms, and thoughtful keepsakes.',
   contactEmail: 'aruelstudio22@gmail.com',
   phone: '',
-  whatsappNumber: '919999200913',
+  whatsappNumber: '',
   instagramUrl: 'https://www.instagram.com/_.aurelstudio._?psln=YnRvcGt3dTNyM2V3',
   facebookUrl: '',
   deliveryNote: 'Pan India Delivery'
@@ -237,12 +238,13 @@ const sendJson = (res: ServerResponse, status: number, payload: unknown) => {
 const resolveStoreSettings = (stored: Partial<StoreSettings> = {}): StoreSettings => {
   const settings = { ...defaultSettings, ...stored }
   const previousWhatsappNumbers = new Set(['919876543210', '8588905927'])
+  const configuredWhatsappNumber = normalizeWhatsAppNumber(process.env.AUREL_WHATSAPP_NUMBER ?? '')
 
   if (!settings.contactEmail || settings.contactEmail === 'concierge@aurelgifts.com') {
     settings.contactEmail = defaultSettings.contactEmail
   }
   if (!settings.whatsappNumber || previousWhatsappNumbers.has(settings.whatsappNumber)) {
-    settings.whatsappNumber = defaultSettings.whatsappNumber
+    settings.whatsappNumber = configuredWhatsappNumber
   }
   if (!settings.instagramUrl) settings.instagramUrl = defaultSettings.instagramUrl
   return settings

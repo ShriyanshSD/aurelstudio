@@ -21,6 +21,7 @@ import { chatHandler } from '../chat-handler.js'
 import { indiaCitiesHandler, indiaStatesHandler } from '../locations-handler.js'
 import { adminApiHandler, publicCatalogHandler } from '../admin-handler.js'
 import { handleNativeCors } from '../native-origin.js'
+import { enforceRouteRateLimit, getRateLimitPolicy } from '../security-config.js'
 
 type ApiRequest = IncomingMessage & {
   body?: unknown
@@ -50,7 +51,7 @@ const routes: Record<string, ApiHandler> = {
   '/api/auth/logout': logoutHandler
 }
 
-export default function handler(req: ApiRequest, res: ServerResponse) {
+export default async function handler(req: ApiRequest, res: ServerResponse) {
   if (handleNativeCors(req, res)) return
   const rewrittenRoute = req.query?.route
   const requestedRoute = typeof rewrittenRoute === 'string'
@@ -62,6 +63,14 @@ export default function handler(req: ApiRequest, res: ServerResponse) {
     ?? new URL(req.url ?? '/', 'http://localhost').searchParams.get('route')
     ?? new URL(req.url ?? '/', 'http://localhost').pathname
   const normalizedPath = pathname.replace(/\/+$/, '') || '/'
+  const policy = getRateLimitPolicy(normalizedPath)
+  if (policy) {
+    const accountKey = typeof req.body === 'object' && req.body && !Array.isArray(req.body) && 'email' in req.body
+      ? String((req.body as Record<string, unknown>).email).trim().toLowerCase()
+      : undefined
+    const allowed = await enforceRouteRateLimit(req, res, policy, accountKey)
+    if (!allowed) return
+  }
   if (normalizedPath === '/api/catalog') return publicCatalogHandler(req, res)
   if (normalizedPath === '/api/admin' || normalizedPath.startsWith('/api/admin/')) return adminApiHandler(req, res)
   const route = routes[normalizedPath]
