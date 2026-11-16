@@ -5,6 +5,11 @@ functions = "netlify/functions"
 
 [build.environment]
 NODE_VERSION = "22"
+# The storefront WhatsApp number and UPI payee name are public details shown to
+# every customer at checkout (the payee name is the brand name, which appears
+# throughout the codebase), so they must not be treated as secrets by scanning.
+# APP_URL is the public site address used in auth redirects and email links.
+SECRETS_SCAN_OMIT_KEYS = "AUREL_WHATSAPP_NUMBER,AUREL_UPI_PAYEE_NAME,APP_URL"
 
 [functions]
 node_bundler = "esbuild"
